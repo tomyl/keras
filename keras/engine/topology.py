@@ -2360,7 +2360,7 @@ class Container(Layer):
         }
         return yaml.dump(model_config, **kwargs)
 
-    def summary(self):
+    def summary(self, fh=None):
         from keras.utils.layer_utils import print_summary
 
         if hasattr(self, 'flattened_layers'):
@@ -2369,7 +2369,7 @@ class Container(Layer):
         else:
             flattened_layers = self.layers
 
-        print_summary(flattened_layers, getattr(self, 'container_nodes', None))
+        print_summary(flattened_layers, getattr(self, 'container_nodes', None), fh=fh)
 
 
 def get_source_inputs(tensor, layer=None, node_index=None):

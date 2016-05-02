@@ -1,5 +1,7 @@
 from __future__ import print_function
 
+import sys
+
 from .generic_utils import get_from_module
 from ..layers import *
 from ..models import Model, Sequential, Graph
@@ -35,7 +37,9 @@ def layer_from_config(config, custom_objects={}):
     return layer_class.from_config(config['config'])
 
 
-def print_summary(layers, relevant_nodes=None):
+def print_summary(layers, relevant_nodes=None, fh=None):
+    if fh is None:
+        fh = sys.stdout
     line_length = 100  # total length of printed lines
     positions = [35, 55, 67, 100]  # absolute positions of log elements in each line
     # header names for the different log elements
@@ -47,11 +51,11 @@ def print_summary(layers, relevant_nodes=None):
             line += str(fields[i])
             line = line[:positions[i]]
             line += ' ' * (positions[i] - len(line))
-        print(line)
+        print(line, file=fh)
 
-    print('_' * line_length)
+    print('_' * line_length, file=fh)
     print_row(to_display, positions)
-    print('=' * line_length)
+    print('=' * line_length, file=fh)
 
     def print_layer_summary(layer):
         try:
@@ -88,10 +92,10 @@ def print_summary(layers, relevant_nodes=None):
     for i in range(len(layers)):
         print_layer_summary(layers[i])
         if i == len(layers) - 1:
-            print('=' * line_length)
+            print('=' * line_length, file=fh)
         else:
-            print('_' * line_length)
+            print('_' * line_length, file=fh)
         total_params += layers[i].count_params()
 
-    print('Total params: %s' % total_params)
-    print('_' * line_length)
+    print('Total params: %s' % total_params, file=fh)
+    print('_' * line_length, file=fh)
