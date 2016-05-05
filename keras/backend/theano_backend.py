@@ -3,6 +3,7 @@ from theano import tensor as T
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 from theano.tensor.signal import pool
 from theano.tensor.nnet import conv3d2d
+from theano.sandbox import softsign as T_softsign
 import inspect
 import numpy as np
 from .common import _FLOATX, _EPSILON
@@ -77,6 +78,12 @@ def ones(shape, dtype=_FLOATX, name=None):
     '''Instantiate an all-ones variable.
     '''
     return variable(np.ones(shape), dtype, name)
+
+
+def eye(size, dtype=_FLOATX, name=None):
+    '''Instantiate an identity matrix.
+    '''
+    return variable(np.eye(size), dtype, name)
 
 
 def ones_like(x):
@@ -257,6 +264,14 @@ def maximum(x, y):
 
 def minimum(x, y):
     return T.minimum(x, y)
+
+
+def sin(x):
+    return T.sin(x)
+
+
+def cos(x):
+    return T.cos(x)
 
 
 # SHAPE OPERATIONS
@@ -469,6 +484,13 @@ def get_value(x):
     return x.get_value()
 
 
+def batch_get_value(xs):
+    '''Returns the value of more than one tensor variable,
+    as a list of Numpy arrays.
+    '''
+    return [get_value(x) for x in xs]
+
+
 def set_value(x, value):
     x.set_value(np.asarray(value, dtype=x.dtype))
 
@@ -558,14 +580,14 @@ def rnn(step_function, inputs, initial_states,
     axes = [1, 0] + list(range(2, ndim))
     inputs = inputs.dimshuffle(axes)
 
+    if constants is None:
+        constants = []
+
     if mask is not None:
         if mask.ndim == ndim-1:
             mask = expand_dims(mask)
         assert mask.ndim == ndim
         mask = mask.dimshuffle(axes)
-
-        if constants is None:
-            constants = []
 
         if unroll:
             indices = list(range(input_length))
@@ -576,7 +598,7 @@ def rnn(step_function, inputs, initial_states,
             successive_states = []
             states = initial_states
             for i in indices:
-                output, new_states = step_function(inputs[i], states)
+                output, new_states = step_function(inputs[i], states + constants)
 
                 if len(successive_outputs) == 0:
                     prev_output = zeros_like(output)
@@ -635,7 +657,7 @@ def rnn(step_function, inputs, initial_states,
             successive_states = []
             states = initial_states
             for i in indices:
-                output, states = step_function(inputs[i], states)
+                output, states = step_function(inputs[i], states + constants)
                 successive_outputs.append(output)
                 successive_states.append(states)
             outputs = T.stack(*successive_outputs)
@@ -709,6 +731,10 @@ def softmax(x):
 
 def softplus(x):
     return T.nnet.softplus(x)
+
+
+def softsign(x):
+    return T_softsign.softsign(x)
 
 
 def categorical_crossentropy(output, target, from_logits=False):
@@ -1015,10 +1041,3 @@ def random_binomial(shape, p=0.0, dtype=_FLOATX, seed=None):
         seed = np.random.randint(10e6)
     rng = RandomStreams(seed=seed)
     return rng.binomial(shape, p=p, dtype=dtype)
-
-'''
-more TODO:
-
-tensordot -> soon to be introduced in TF
-batched_tensordot -> reimplement
-'''

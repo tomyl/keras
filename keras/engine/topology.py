@@ -847,10 +847,11 @@ class Layer(object):
         if not params:
             return
         weight_value_tuples = []
-        for p, w in zip(params, weights):
-            if K.get_value(p).shape != w.shape:
+        param_values = K.batch_get_value(params)
+        for pv, p, w in zip(param_values, params, weights):
+            if pv.shape != w.shape:
                 raise Exception('Layer weight shape ' +
-                                str(K.get_value(p).shape) +
+                                str(pv.shape) +
                                 ' not compatible with '
                                 'provided weight shape ' + str(w.shape))
             weight_value_tuples.append((p, w))
@@ -861,10 +862,7 @@ class Layer(object):
         as a list of numpy arrays.
         '''
         params = self.trainable_weights + self.non_trainable_weights
-        weights = []
-        for p in params:
-            weights.append(K.get_value(p))
-        return weights
+        return K.batch_get_value(params)
 
     def get_config(self):
         '''Returns a Python dictionary (serializable)
@@ -1128,7 +1126,8 @@ class Merge(Layer):
             if mode not in {'sum', 'mul', 'concat', 'ave', 'cos', 'dot'}:
                 raise Exception('Invalid merge mode: ' + str(mode))
         if type(layers) not in {list, tuple} or len(layers) < 2:
-            raise Exception('A Merge should only be applied to a list of layers. Not a list: ' + str(layers))
+            raise Exception('A Merge should only be applied to a list of '
+                            'layers with at least 2 elements. Found: ' + str(layers))
 
         if tensor_indices is None:
             tensor_indices = [None for _ in range(len(layers))]
@@ -1241,20 +1240,33 @@ class Merge(Layer):
                             'please use ' +
                             'the "merge" function instead: ' +
                             '`merged_tensor = merge([tensor_1, tensor2])`.')
-        layers = []
-        node_indices = []
-        tensor_indices = []
+
+        all_keras_tensors = True
         for x in inputs:
-            layer, node_index, tensor_index = x._keras_history
-            layers.append(layer)
-            node_indices.append(node_index)
-            tensor_indices.append(tensor_index)
-        self._arguments_validation(layers, self.mode,
-                                   self.concat_axis, self.dot_axes,
-                                   self._output_shape,
-                                   node_indices, tensor_indices)
-        self.built = True
-        self.add_inbound_node(layers, node_indices, tensor_indices)
+            if not hasattr(x, '_keras_history'):
+                all_keras_tensors = False
+                break
+
+        if all_keras_tensors:
+            layers = []
+            node_indices = []
+            tensor_indices = []
+            for x in inputs:
+                layer, node_index, tensor_index = x._keras_history
+                layers.append(layer)
+                node_indices.append(node_index)
+                tensor_indices.append(tensor_index)
+            self._arguments_validation(layers, self.mode,
+                                       self.concat_axis, self.dot_axes,
+                                       self._output_shape,
+                                       node_indices, tensor_indices)
+            self.built = True
+            self.add_inbound_node(layers, node_indices, tensor_indices)
+
+            outputs = self.inbound_nodes[-1].output_tensors
+            return outputs[0] # merge only returns a single tensor
+        else:
+            return self.call(inputs, mask)
 
     def get_output_shape_for(self, input_shape):
         assert type(input_shape) is list  # must have mutiple input shape tuples
@@ -1405,20 +1417,35 @@ def merge(inputs, mode='sum', concat_axis=-1,
             to consider for merging
             (in case some input layer node returns multiple tensors).
     '''
-    input_layers = []
-    node_indices = []
-    tensor_indices = []
+    all_keras_tensors = True
     for x in inputs:
-        assert hasattr(x, '_keras_history'), 'Input tensor to "merge" was not a Keras tensor: ' + str(x)
-        input_layer, node_index, tensor_index = x._keras_history
-        input_layers.append(input_layer)
-        node_indices.append(node_index)
-        tensor_indices.append(tensor_index)
-    merge_layer = Merge(input_layers, mode=mode, concat_axis=concat_axis,
-                        dot_axes=dot_axes, output_shape=output_shape,
-                        node_indices=node_indices, tensor_indices=tensor_indices,
-                        name=name)
-    return merge_layer.inbound_nodes[0].output_tensors[0]
+        if not hasattr(x, '_keras_history'):
+            all_keras_tensors = False
+            break
+    if all_keras_tensors:
+        input_layers = []
+        node_indices = []
+        tensor_indices = []
+        for x in inputs:
+            input_layer, node_index, tensor_index = x._keras_history
+            input_layers.append(input_layer)
+            node_indices.append(node_index)
+            tensor_indices.append(tensor_index)
+        merge_layer = Merge(input_layers, mode=mode,
+                            concat_axis=concat_axis,
+                            dot_axes=dot_axes,
+                            output_shape=output_shape,
+                            node_indices=node_indices,
+                            tensor_indices=tensor_indices,
+                            name=name)
+        return merge_layer.inbound_nodes[0].output_tensors[0]
+    else:
+        merge_layer = Merge(mode=mode,
+                            concat_axis=concat_axis,
+                            dot_axes=dot_axes,
+                            output_shape=output_shape,
+                            name=name)
+        return merge_layer(inputs)
 
 
 class Container(Layer):
@@ -1646,7 +1673,8 @@ class Container(Layer):
                 layers_by_depth[depth] = []
             layers_by_depth[depth].append(layer)
 
-        depth_keys = list(nodes_by_depth.keys())
+        # get sorted list of layer depths
+        depth_keys = list(layers_by_depth.keys())
         depth_keys.sort(reverse=True)
 
         # set self.layers and self.layers_by_depth
@@ -1659,6 +1687,10 @@ class Container(Layer):
                 layers.append(layer)
         self.layers = layers
         self.layers_by_depth = layers_by_depth
+
+        # get sorted list of node depths
+        depth_keys = list(nodes_by_depth.keys())
+        depth_keys.sort(reverse=True)
 
         # check that all tensors required are computable.
         # computable_tensors: all tensors in the graph
