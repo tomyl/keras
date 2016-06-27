@@ -2188,10 +2188,18 @@ class Container(Layer):
         # layer instances created during
         # the graph reconstruction process
         created_layers = {}
+        input_layers = []
+        other_layers = []
+
+        for layer_data in config['layers']:
+            if layer_data['class_name'] == 'InputLayer':
+                input_layers.append(layer_data)
+            else:
+                other_layers.append(layer_data)
 
         # iterate over saved layers, instantiate them,
         # then call them on appropriate inputs to create graph nodes
-        for layer_data in config['layers']:
+        for layer_data in input_layers + other_layers:
             layer_name = layer_data['name']
 
             # instantiate layer
