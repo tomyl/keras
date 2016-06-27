@@ -16,14 +16,15 @@ Time per epoch: 3s on CPU (core i7).
 from __future__ import print_function
 from keras.models import Sequential
 from keras.layers.embeddings import Embedding
-from keras.layers import Activation, Dense, Merge, Permute, Dropout
-from keras.layers import LSTM
+from keras.layers.core import Activation, Dense, Merge, Permute, Dropout
+from keras.layers.recurrent import LSTM
 from keras.utils.data_utils import get_file
 from keras.preprocessing.sequence import pad_sequences
 from functools import reduce
 import tarfile
 import numpy as np
 import re
+import time
 
 
 def tokenize(sent):
@@ -34,6 +35,23 @@ def tokenize(sent):
     '''
     return [x.strip() for x in re.split('(\W+)?', sent) if x.strip()]
 
+def replace_entities(tokens, entities, seen):
+    out = []
+    for t in tokens:
+        if t in entities:
+            typ = entities[t]
+            if typ not in seen:
+                seen[typ] = {}
+            if t in seen[typ]:
+                out.append(seen[typ][t])
+            else:
+                n = len(seen[typ])
+                key = '$' + typ + str(n)
+                seen[typ][t] = key
+                out.append(key)
+        else:
+            out.append(t)
+    return out
 
 def parse_stories(lines, only_supporting=False):
     '''Parse stories provided in the bAbi tasks format
@@ -42,15 +60,23 @@ def parse_stories(lines, only_supporting=False):
     '''
     data = []
     story = []
+    entities = {} #dict((k, 'n') for k in 'Mary John Daniel Sandra'.split())
+    for k in 'Mary John Daniel Sandra'.split():
+        entities[k] = 'name'
+    for k in 'bathroom hallway garden office kitchen bedroom'.split():
+        entities[k] = 'loc'
     for line in lines:
         line = line.decode('utf-8').strip()
         nid, line = line.split(' ', 1)
         nid = int(nid)
         if nid == 1:
             story = []
+            seen = {}
         if '\t' in line:
             q, a, supporting = line.split('\t')
             q = tokenize(q)
+            q = replace_entities(q, entities, seen)
+            a = replace_entities([a], entities, seen)[0]
             substory = None
             if only_supporting:
                 # Only select the related substory
@@ -63,6 +89,7 @@ def parse_stories(lines, only_supporting=False):
             story.append('')
         else:
             sent = tokenize(line)
+            sent = replace_entities(sent, entities, seen)
             story.append(sent)
     return data
 
@@ -94,13 +121,8 @@ def vectorize_stories(data, word_idx, story_maxlen, query_maxlen):
             pad_sequences(Xq, maxlen=query_maxlen), np.array(Y))
 
 
-try:
-    path = get_file('babi-tasks-v1-2.tar.gz', origin='http://www.thespermwhale.com/jaseweston/babi/tasks_1-20_v1-2.tar.gz')
-except:
-    print('Error downloading dataset, please download it manually:\n'
-          '$ wget http://www.thespermwhale.com/jaseweston/babi/tasks_1-20_v1-2.tar.gz\n'
-          '$ mv tasks_1-20_v1-2.tar.gz ~/.keras/datasets/babi-tasks-v1-2.tar.gz')
-    raise
+path = get_file('babi-tasks-v1-2.tar.gz',
+                origin='http://www.thespermwhale.com/jaseweston/babi/tasks_1-20_v1-2.tar.gz')
 tar = tarfile.open(path)
 
 challenges = {
@@ -199,11 +221,13 @@ answer.add(Dropout(0.3))
 answer.add(Dense(vocab_size))
 # we output a probability distribution over the vocabulary
 answer.add(Activation('softmax'))
-
+answer.summary()
 answer.compile(optimizer='rmsprop', loss='categorical_crossentropy',
                metrics=['accuracy'])
 # Note: you could use a Graph model to avoid repeat the input twice
+t0 = time.time()
 answer.fit([inputs_train, queries_train, inputs_train], answers_train,
            batch_size=32,
            nb_epoch=120,
            validation_data=([inputs_test, queries_test, inputs_test], answers_test))
+print(time.time()-t0)

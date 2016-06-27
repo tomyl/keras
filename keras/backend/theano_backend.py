@@ -3,7 +3,10 @@ from theano import tensor as T
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 from theano.tensor.signal import pool
 from theano.tensor.nnet import conv3d2d
-from theano.sandbox import softsign as T_softsign
+try:
+    from theano.tensor.nnet.nnet import softsign as T_softsign
+except ImportError:
+    from theano.sandbox.softsign import softsign as T_softsign
 import inspect
 import numpy as np
 from .common import _FLOATX, _EPSILON
@@ -197,10 +200,20 @@ def std(x, axis=None, keepdims=False):
     return T.std(x, axis=axis, keepdims=keepdims)
 
 
+def var(x, axis=None, keepdims=False):
+    return T.var(x, axis=axis, keepdims=keepdims)
+
+
 def any(x, axis=None, keepdims=False):
     '''Bitwise reduction (logical OR).
     '''
     return T.any(x, axis=axis, keepdims=keepdims)
+
+
+def all(x, axis=None, keepdims=False):
+    '''Bitwise reduction (logical AND).
+    '''
+    return T.all(x, axis=axis, keepdims=keepdims)
 
 
 def argmax(x, axis=-1):
@@ -386,15 +399,18 @@ def expand_dims(x, dim=-1):
 def squeeze(x, axis):
     '''Remove a 1-dimension from the tensor at index "axis".
     '''
-    x = T.addbroadcast(x, axis)
-    return T.squeeze(x)
+    broadcastable = x.broadcastable[:axis] + x.broadcastable[axis+1:]
+    x = T.patternbroadcast(x, [i == axis for i in range(x.type.ndim)])
+    x = T.squeeze(x)
+    x = T.patternbroadcast(x, broadcastable)
+    return x
 
 
 def temporal_padding(x, padding=1):
     '''Pad the middle dimension of a 3D tensor
     with "padding" zeros left and right.
 
-    Appologies for the inane API, but Theano makes this
+    Apologies for the inane API, but Theano makes this
     really hard.
     '''
     input_shape = x.shape
@@ -734,7 +750,7 @@ def softplus(x):
 
 
 def softsign(x):
-    return T_softsign.softsign(x)
+    return T_softsign(x)
 
 
 def categorical_crossentropy(output, target, from_logits=False):
@@ -779,7 +795,7 @@ def dropout(x, level, seed=None):
     if level < 0. or level >= 1:
         raise Exception('Dropout level must be in interval [0, 1[.')
     if seed is None:
-        seed = np.random.randint(10e6)
+        seed = np.random.randint(1, 10e6)
     rng = RandomStreams(seed=seed)
     retain_prob = 1. - level
     x *= rng.binomial(x.shape, p=retain_prob, dtype=x.dtype)
@@ -1024,20 +1040,20 @@ def pool3d(x, pool_size, strides=(1, 1, 1), border_mode='valid',
 
 def random_normal(shape, mean=0.0, std=1.0, dtype=_FLOATX, seed=None):
     if seed is None:
-        seed = np.random.randint(10e6)
+        seed = np.random.randint(1, 10e6)
     rng = RandomStreams(seed=seed)
     return rng.normal(size=shape, avg=mean, std=std, dtype=dtype)
 
 
 def random_uniform(shape, low=0.0, high=1.0, dtype=_FLOATX, seed=None):
     if seed is None:
-        seed = np.random.randint(10e6)
+        seed = np.random.randint(1, 10e6)
     rng = RandomStreams(seed=seed)
     return rng.uniform(shape, low=low, high=high, dtype=dtype)
 
 
 def random_binomial(shape, p=0.0, dtype=_FLOATX, seed=None):
     if seed is None:
-        seed = np.random.randint(10e6)
+        seed = np.random.randint(1, 10e6)
     rng = RandomStreams(seed=seed)
     return rng.binomial(shape, p=p, dtype=dtype)
